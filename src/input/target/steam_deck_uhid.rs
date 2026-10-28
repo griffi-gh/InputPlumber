@@ -390,21 +390,34 @@ impl SteamDeckUhidDevice {
             }
             Capability::Accelerometer(_) => {
                 if let InputValue::Vector3 { x, y, z } = value {
+                    // The report only covers +/-2 g. Scale the whole vector down
+                    // instead of clamping each axis, so fast movements keep the
+                    // direction of the acceleration (Steam uses it for gravity).
+                    let peak = [x, y, z]
+                        .iter()
+                        .flatten()
+                        .map(|v| (v * DECK_MPS2_TO_ACCEL_RAW).abs())
+                        .fold(0.0, f64::max);
+                    let scale = if peak > i16::MAX as f64 {
+                        i16::MAX as f64 / peak
+                    } else {
+                        1.0
+                    };
                     if let Some(x) = x {
                         self.state.accel_x = Integer::from_primitive(denormalize_accel_value_i16(
-                            x,
+                            x * scale,
                             DECK_MPS2_TO_ACCEL_RAW,
                         ));
                     }
                     if let Some(y) = y {
                         self.state.accel_z = Integer::from_primitive(denormalize_accel_value_i16(
-                            y,
+                            y * scale,
                             DECK_MPS2_TO_ACCEL_RAW,
                         ));
                     }
                     if let Some(z) = z {
                         self.state.accel_y = Integer::from_primitive(denormalize_accel_value_i16(
-                            -z,
+                            -z * scale,
                             DECK_MPS2_TO_ACCEL_RAW,
                         ));
                     }

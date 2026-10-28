@@ -877,6 +877,12 @@ impl TargetInputDevice for SteamDeckUhidDevice {
 }
 
 impl TargetOutputDevice for SteamDeckUhidDevice {
+    /// Every poll writes an input report and advances the frame counter, so
+    /// only poll on the interval to report at a steady rate like real hardware.
+    fn poll_at_fixed_rate(&self) -> bool {
+        true
+    }
+
     /// Update the virtual device with its current state, and read unhandled
     /// USB transfers.
     fn poll(&mut self, _: &Option<CompositeDeviceClient>) -> Result<Vec<OutputEvent>, OutputError> {

@@ -30,6 +30,7 @@ use thiserror::Error;
 use tokio::{
     sync::mpsc::{self, error::TryRecvError},
     task::JoinHandle,
+    time::MissedTickBehavior,
 };
 use unified_gamepad::UnifiedGamepadDevice;
 
@@ -427,6 +428,13 @@ pub trait TargetOutputDevice {
     ) -> Result<(), OutputError> {
         Ok(())
     }
+
+    /// If true, the device is only polled on its poll rate interval instead of
+    /// also after every received command. Devices that emit a report on every
+    /// poll and are expected to report at a steady rate should return true.
+    fn poll_at_fixed_rate(&self) -> bool {
+        false
+    }
 }
 
 /// Options for running a target device
@@ -523,7 +531,11 @@ impl<T: TargetInputDevice + TargetOutputDevice + Send + 'static> TargetDriver<T>
                 };
 
                 log::debug!("Target device running: {}", self.dbus.path());
+                let fixed_rate = self.implementation.lock().unwrap().poll_at_fixed_rate();
                 let mut interval = tokio::time::interval(self.options.poll_rate);
+                if fixed_rate {
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                }
                 loop {
                     // Find any scheduled events that are ready to be sent
                     let mut ready_events = vec![];
@@ -592,17 +604,28 @@ impl<T: TargetInputDevice + TargetOutputDevice + Send + 'static> TargetDriver<T>
                         }
                     }
 
-                    // Sleep for the configured duration or until a command is sent
-                    tokio::select! {
-                        _ = interval.tick() => (),
-                        Some(cmd) = rx.recv() => {
-                            let mut implementation = self.implementation.lock().unwrap();
-                            let result = Self::process_command(&self.type_id, &mut composite_device, &metrics_tx, &mut implementation, cmd);
-                            if let Err(e) = result {
-                                log::debug!("Error processing received command: {e}");
-                                break;
+                    // Sleep for the configured duration or until a command is sent.
+                    // Fixed rate devices keep processing commands until the next tick.
+                    let mut stop = false;
+                    loop {
+                        tokio::select! {
+                            _ = interval.tick() => break,
+                            Some(cmd) = rx.recv() => {
+                                let mut implementation = self.implementation.lock().unwrap();
+                                let result = Self::process_command(&self.type_id, &mut composite_device, &metrics_tx, &mut implementation, cmd);
+                                if let Err(e) = result {
+                                    log::debug!("Error processing received command: {e}");
+                                    stop = true;
+                                    break;
+                                }
+                                if !fixed_rate {
+                                    break;
+                                }
                             }
                         }
+                    }
+                    if stop {
+                        break;
                     }
                 }
 

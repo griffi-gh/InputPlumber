@@ -170,8 +170,10 @@ impl Driver {
 
         log::trace!("Got IIO IMU events: {:?}", events);
 
-        if let Some(remaining) = self.poll_interval.checked_sub(start.elapsed()) {
-            thread::sleep(remaining);
+        if !self.source.has_pending() {
+            if let Some(remaining) = self.poll_interval.checked_sub(start.elapsed()) {
+                thread::sleep(remaining);
+            }
         }
 
         Ok(events)

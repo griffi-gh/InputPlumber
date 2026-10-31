@@ -91,6 +91,10 @@ impl fmt::Display for MountMatrix {
 /// fills `buf` with it.
 pub trait RecordSource: fmt::Debug + Send {
     fn read_one(&mut self, buf: &mut [u8]) -> io::Result<()>;
+
+    fn has_pending(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug)]
@@ -113,6 +117,16 @@ impl RecordSource for BlockingFdSource {
         }
         wait_readable(self.file.as_raw_fd())?;
         self.file.read_exact(buf)
+    }
+
+    fn has_pending(&self) -> bool {
+        let mut fds = [libc::pollfd {
+            fd: self.file.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        }];
+        let ret = unsafe { libc::poll(fds.as_mut_ptr(), 1, 0) };
+        ret > 0 && fds[0].revents & libc::POLLIN != 0
     }
 }
 

@@ -87,6 +87,9 @@ pub struct CompositeDevice {
     capabilities: HashSet<Capability>,
     /// Capabilities sorted by source device id
     capabilities_by_source: HashMap<String, HashSet<Capability>>,
+    /// Pressed buttons and triggers by source device id, with the value that
+    /// releases them. Used to release inputs held when a source is removed.
+    held_inputs_by_source: HashMap<String, HashMap<Capability, InputValue>>,
     /// Output capabilities describe all output capabilities from all source devices
     output_capabilities: HashSet<OutputCapability>,
     /// Output capabilities sorted by source device id.
@@ -194,6 +197,7 @@ impl CompositeDevice {
             name,
             capabilities: HashSet::new(),
             capabilities_by_source: HashMap::new(),
+            held_inputs_by_source: HashMap::new(),
             output_capabilities: HashSet::new(),
             output_capabilities_by_source: HashMap::new(),
             capability_map,
@@ -768,6 +772,24 @@ impl CompositeDevice {
         if cap == Capability::NotImplemented {
             log::trace!("Refusing to send '{cap}' event to target devices.");
             return Ok(());
+        }
+
+        // Track held buttons and triggers so they can be released if the
+        // source device is removed while they are held.
+        let release_value = match event.get_value() {
+            InputValue::Bool(_) => Some(InputValue::Bool(false)),
+            InputValue::Float(_) => Some(InputValue::Float(0.0)),
+            _ => None,
+        };
+        if let Some(release_value) = release_value {
+            if event.pressed() {
+                self.held_inputs_by_source
+                    .entry(device_id.clone())
+                    .or_default()
+                    .insert(cap.clone(), release_value);
+            } else if let Some(held) = self.held_inputs_by_source.get_mut(&device_id) {
+                held.remove(&cap);
+            }
         }
 
         // Check if the event needs to be translated based on the
@@ -1612,6 +1634,24 @@ impl CompositeDevice {
     async fn on_source_device_removed(&mut self, device: DeviceInfo) -> Result<(), Box<dyn Error>> {
         let path = device.path();
         let id = device.get_id();
+
+        // Release any inputs that were still held by this device, unless
+        // another source device is also holding them.
+        let held = self.held_inputs_by_source.remove(&id).unwrap_or_default();
+        for (cap, release_value) in held {
+            let held_elsewhere = self
+                .held_inputs_by_source
+                .values()
+                .any(|held| held.contains_key(&cap));
+            if held_elsewhere {
+                continue;
+            }
+            log::debug!("Releasing {cap} held by removed source {id}");
+            let event = Event::Native(NativeEvent::new(cap, release_value));
+            if let Err(e) = self.process_event(id.clone(), event).await {
+                log::warn!("Failed to release input held by removed source {id}: {e}");
+            }
+        }
 
         // Remove any ffb effects this device registered
         let mut freed_effect_ids = Vec::new();

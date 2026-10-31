@@ -178,6 +178,8 @@ pub struct NativeCapabilityMapping {
     pub name: String,
     pub source_events: Vec<CapabilityConfig>,
     pub target_event: CapabilityConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_event_time_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, JsonSchema, PartialEq, Default)]

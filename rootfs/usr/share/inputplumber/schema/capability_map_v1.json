@@ -55,6 +55,11 @@
           "items": {
             "$ref": "#/definitions/Event"
           }
+        },
+        "min_event_time_ms": {
+          "description": "Minimum time in milliseconds the target event stays pressed, for source events that release too quickly to be seen by userspace",
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [

@@ -1,13 +1,18 @@
 use crate::udev::device::{AttributeGetter, AttributeSetter, UdevDevice};
 use hidapi::HidDevice;
 use packed_struct::PackedStruct;
-use std::{error::Error, ffi::CString, time::Duration};
+use std::{error::Error, ffi::CString, io, thread, time::Duration};
 use udev::Device;
 
 use super::{
     event::OutputEvent, has_haptic_triggers, hid_report::PackedRumbleExtendedOutputReport, PIDS,
     VID,
 };
+
+/// Number of times to try writing an attribute the MCU rejects
+const ATTRIBUTE_WRITE_ATTEMPTS: u32 = 10;
+/// Time to wait between attribute write attempts
+const ATTRIBUTE_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 pub struct Driver {
     _device: UdevDevice,
@@ -27,7 +32,7 @@ impl Driver {
         std::thread::sleep(Duration::from_millis(300));
 
         let device = udevice.get_device()?;
-        let Some(mut parent) = device.parent() else {
+        let Some(parent) = device.parent() else {
             return Err("Failed to get device parent".into());
         };
 
@@ -48,10 +53,7 @@ impl Driver {
                 set_attribute(device.clone(), "btn_m1/remap", "KB_F15");
                 set_attribute(device.clone(), "btn_m2/remap", "KB_F14");
                 set_attribute(device.clone(), "gamepad_mode", "1");
-                parent
-                    .set_attribute_value("apply_all", "1")
-                    .map_err(|e| log::warn!("Could not set apply_all to 1: {e:?}"))
-                    .ok();
+                set_attribute(parent.clone(), "apply_all", "1");
             }
             "05" => {
                 // Configure QAM mode for Ally X
@@ -104,9 +106,23 @@ impl Driver {
 
 fn set_attribute(mut device: Device, attribute: &str, value: &str) {
     // log errors but don't bomb out of InputPlumber by returning them,
-    // this should allow at least some usability of devices if errored
-    match device.set_attribute_on_tree(attribute, value) {
-        Ok(_) => log::debug!("set {attribute} to {value}"),
-        Err(e) => log::warn!("Could not set {attribute} to {value}: {e:?}"),
+    // this should allow at least some usability of devices if errored.
+    // The MCU rejects writes until it has finished starting up (e.g. after
+    // resuming with powersave enabled), so retry I/O errors for a while.
+    for attempt in 1..=ATTRIBUTE_WRITE_ATTEMPTS {
+        match device.set_attribute_on_tree(attribute, value) {
+            Ok(_) => {
+                log::debug!("set {attribute} to {value}");
+                return;
+            }
+            Err(e) if attempt < ATTRIBUTE_WRITE_ATTEMPTS && e.is::<io::Error>() => {
+                log::debug!("Could not set {attribute} to {value} (attempt {attempt}): {e:?}");
+                thread::sleep(ATTRIBUTE_RETRY_DELAY);
+            }
+            Err(e) => {
+                log::warn!("Could not set {attribute} to {value}: {e:?}");
+                return;
+            }
+        }
     }
 }

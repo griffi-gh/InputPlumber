@@ -1325,6 +1325,10 @@ impl CompositeDevice {
             CapabilityMapConfig::V1(config) => {
                 // Loop over each mapping and try to match source events
                 for mapping in config.mapping.iter() {
+                    let min_event_time = mapping
+                        .min_event_time_ms
+                        .map(Duration::from_millis)
+                        .unwrap_or(MIN_EVENT_TIME);
                     // If the event was not pressed and it exists in the emitted_mappings array,
                     // then we need to check to see if ALL of its events no longer exist in
                     // translatable_active_inputs.
@@ -1351,7 +1355,7 @@ impl CompositeDevice {
                             }
                             let event = NativeEvent::new(cap, InputValue::Bool(false));
                             log::trace!("Adding event to emit queue: {:?}", event);
-                            emit_queue.push(event);
+                            emit_queue.push((event, min_event_time));
                             self.emitted_mappings.remove(&mapping.name);
                         }
                     }
@@ -1377,7 +1381,7 @@ impl CompositeDevice {
                             }
                             let event = NativeEvent::new(cap, InputValue::Bool(true));
                             log::trace!("Adding event to emit queue: {:?}", event);
-                            emit_queue.push(event);
+                            emit_queue.push((event, min_event_time));
                             self.emitted_mappings.insert(mapping.name.clone());
                         }
                     }
@@ -1386,6 +1390,7 @@ impl CompositeDevice {
             CapabilityMapConfig::V2(config) => {
                 // Loop over each mapping and try to match source events
                 for mapping in config.mapping.iter() {
+                    let min_event_time = MIN_EVENT_TIME;
                     // If the event was not pressed and it exists in the emitted_mappings array,
                     // then we need to check to see if ALL of its events no longer exist in
                     // translatable_active_inputs.
@@ -1416,7 +1421,7 @@ impl CompositeDevice {
                             }
                             let event = NativeEvent::new(cap, InputValue::Bool(false));
                             log::trace!("Adding event to emit queue: {:?}", event);
-                            emit_queue.push(event);
+                            emit_queue.push((event, min_event_time));
                             self.emitted_mappings.remove(&mapping.name);
                         }
                     }
@@ -1446,7 +1451,7 @@ impl CompositeDevice {
                             }
                             let event = NativeEvent::new(cap, InputValue::Bool(true));
                             log::trace!("Adding event to emit queue: {:?}", event);
-                            emit_queue.push(event);
+                            emit_queue.push((event, min_event_time));
                             self.emitted_mappings.insert(mapping.name.clone());
                         }
                     }
@@ -1456,7 +1461,7 @@ impl CompositeDevice {
 
         // Emit the translated events. If this translated event has been emitted
         // very recently, delay sending subsequent events of the same type.
-        for event in emit_queue {
+        for (event, min_event_time) in emit_queue {
             // Check to see if the event is in recently translated.
             // If it is, spawn a task to delay emit the event.
             let cap = event.as_capability();
@@ -1464,7 +1469,7 @@ impl CompositeDevice {
                 log::debug!("Event emitted too quickly. Delaying emission.");
                 let tx = self.tx.clone();
                 tokio::task::spawn(async move {
-                    tokio::time::sleep(MIN_EVENT_TIME).await;
+                    tokio::time::sleep(min_event_time).await;
                     if let Err(e) = tx.send(CompositeCommand::HandleEvent(event)).await {
                         log::error!("Failed to send delayed event command: {:?}", e);
                     }
@@ -1479,7 +1484,7 @@ impl CompositeDevice {
             // Spawn a task to remove the event from recent translated
             let tx = self.tx.clone();
             tokio::task::spawn(async move {
-                tokio::time::sleep(MIN_EVENT_TIME).await;
+                tokio::time::sleep(min_event_time).await;
                 if let Err(e) = tx.send(CompositeCommand::RemoveRecentEvent(cap)).await {
                     log::error!("Failed to send remove recent event command: {:?}", e);
                 }

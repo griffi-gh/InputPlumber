@@ -16,6 +16,7 @@ mapping:
   - name: Control Center (Short)
     source_events:
       - keyboard: KeyF16
+    min_event_time_ms: 80
     target_event:
       gamepad:
         button: Guide
@@ -24,30 +25,35 @@ mapping:
       - keyboard: KeyLeftCtrl
       - keyboard: KeyLeftAlt
       - keyboard: KeyDelete
+    min_event_time_ms: 80
     target_event:
       gamepad:
         button: Keyboard
   - name: Control Center (Long)
     source_events:
       - keyboard: KeyF20
+    min_event_time_ms: 80
     target_event:
       gamepad:
         button: Keyboard
   - name: Armory Crate (Short)
     source_events:
       - keyboard: KeyProg1
+    min_event_time_ms: 80
     target_event:
       gamepad:
         button: QuickAccess
   - name: Armory Crate (Short)
     source_events:
       - keyboard: KeyF19
+    min_event_time_ms: 80
     target_event:
       gamepad:
         button: QuickAccess
   - name: Armory Crate (Long)
     source_events:
       - keyboard: KeyF17
+    min_event_time_ms: 80
     target_event:
       gamepad:
         button: QuickAccess2

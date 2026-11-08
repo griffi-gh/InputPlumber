@@ -11,6 +11,7 @@ use packed_struct::types::SizedInteger;
 use packed_struct::PrimitiveEnum;
 
 use crate::config::capability_map::CapabilityMapConfigV2;
+use crate::drivers::rog_ally;
 use crate::drivers::steam_deck::hid_report::{
     CommandType, PackedTriggerHapticPulse, PackedTriggerRepeatedHapticPulse,
     PackedTriggerVibration, PadSide, TriggerSide,
@@ -41,6 +42,7 @@ pub struct GamepadEventDevice {
     ff_effects_deck: Option<i16>,
     ff_effects_rumble: Option<i16>,
     hat_state: HashMap<AbsoluteAxisCode, i32>,
+    ally_rumble_range: bool,
 }
 
 impl GamepadEventDevice {
@@ -71,6 +73,10 @@ impl GamepadEventDevice {
         // Create an event translator if a capability map was given
         let translator = capability_map.map(|map| EventTranslator::new(&map, axes_info.clone()));
 
+        let input_id = device.input_id();
+        let ally_rumble_range =
+            input_id.vendor() == rog_ally::VID && rog_ally::PIDS.contains(&input_id.product());
+
         Ok(Self {
             device,
             axes_info,
@@ -80,6 +86,7 @@ impl GamepadEventDevice {
             ff_effects_deck: None,
             ff_effects_rumble: None,
             hat_state: HashMap::new(),
+            ally_rumble_range,
         })
     }
 
@@ -157,7 +164,8 @@ impl GamepadEventDevice {
                 },
             };
             log::trace!("Uploading FF effect data");
-            let effect = self.device.upload_ff_effect(effect_data)?;
+            let effect = self.device
+                .upload_ff_effect(scale_rumble(effect_data, self.ally_rumble_range))?;
             let id = effect.id() as i16;
             self.ff_effects.insert(id, effect);
             self.ff_effects_dualsense = Some(id);
@@ -199,7 +207,7 @@ impl GamepadEventDevice {
             },
         };
         log::trace!("Updating effect data");
-        effect.update(effect_data)?;
+        effect.update(scale_rumble(effect_data, self.ally_rumble_range))?;
         log::trace!("Playing effect with data: {:?}", effect_data);
         effect.play(1)?;
 
@@ -226,7 +234,8 @@ impl GamepadEventDevice {
                 },
             };
             log::trace!("Uploading FF effect data");
-            let effect = self.device.upload_ff_effect(effect_data)?;
+            let effect = self.device
+                .upload_ff_effect(scale_rumble(effect_data, self.ally_rumble_range))?;
             let id = effect.id() as i16;
             self.ff_effects.insert(id, effect);
             self.ff_effects_deck = Some(id);
@@ -272,7 +281,7 @@ impl GamepadEventDevice {
             },
         };
         log::trace!("Updating effect data");
-        effect.update(effect_data)?;
+        effect.update(scale_rumble(effect_data, self.ally_rumble_range))?;
         log::trace!("Playing effect with data: {:?}", effect_data);
         effect.play(1)?;
 
@@ -301,7 +310,8 @@ impl GamepadEventDevice {
                 },
             };
             log::trace!("Uploading generic rumble FF effect");
-            let effect = self.device.upload_ff_effect(effect_data)?;
+            let effect = self.device
+                .upload_ff_effect(scale_rumble(effect_data, self.ally_rumble_range))?;
             let id = effect.id() as i16;
             self.ff_effects.insert(id, effect);
             self.ff_effects_rumble = Some(id);
@@ -331,7 +341,7 @@ impl GamepadEventDevice {
                 weak_magnitude,
             },
         };
-        effect.update(effect_data)?;
+        effect.update(scale_rumble(effect_data, self.ally_rumble_range))?;
         effect.play(1)?;
         Ok(())
     }
@@ -359,7 +369,8 @@ impl GamepadEventDevice {
                 },
             };
             log::trace!("Uploading FF effect data");
-            let effect = self.device.upload_ff_effect(effect_data)?;
+            let effect = self.device
+                .upload_ff_effect(scale_rumble(effect_data, self.ally_rumble_range))?;
             let id = effect.id() as i16;
             self.ff_effects.insert(id, effect);
             self.ff_effects_deck = Some(id);
@@ -423,7 +434,7 @@ impl GamepadEventDevice {
             },
         };
         log::trace!("Updating effect data");
-        effect.update(effect_data)?;
+        effect.update(scale_rumble(effect_data, self.ally_rumble_range))?;
         log::trace!("Playing effect with data: {:?}", effect_data);
         effect.play(1)?;
 
@@ -452,7 +463,8 @@ impl GamepadEventDevice {
                     weak_magnitude: 0,
                 },
             };
-            let effect = self.device.upload_ff_effect(effect_data)?;
+            let effect = self.device
+                .upload_ff_effect(scale_rumble(effect_data, self.ally_rumble_range))?;
             let id = effect.id() as i16;
             self.ff_effects.insert(id, effect);
             self.ff_effects_deck = Some(id);
@@ -482,7 +494,7 @@ impl GamepadEventDevice {
                 weak_magnitude,
             },
         };
-        effect.update(effect_data)?;
+        effect.update(scale_rumble(effect_data, self.ally_rumble_range))?;
         effect.play(1)?;
 
         Ok(())
@@ -761,7 +773,10 @@ impl SourceOutputDevice for GamepadEventDevice {
             log::debug!("Device does not support FF effects");
             return Ok(-1);
         }
-        match self.device.upload_ff_effect(effect) {
+        match self
+            .device
+            .upload_ff_effect(scale_rumble(effect, self.ally_rumble_range))
+        {
             Ok(effect) => {
                 let id = effect.id() as i16;
                 self.ff_effects.insert(id, effect);
@@ -783,7 +798,7 @@ impl SourceOutputDevice for GamepadEventDevice {
             return Ok(());
         };
 
-        if let Err(e) = current_effect.update(effect) {
+        if let Err(e) = current_effect.update(scale_rumble(effect, self.ally_rumble_range)) {
             log::warn!("Failed to update effect with id {effect_id}: {:?}", e);
         }
 
@@ -815,6 +830,23 @@ impl Debug for GamepadEventDevice {
 
 // Returns a value between 0.0 and 1.0 based on the given value with its
 // maximum.
+fn scale_rumble(mut effect: FFEffectData, ally_rumble_range: bool) -> FFEffectData {
+    if !ally_rumble_range {
+        return effect;
+    }
+    if let FFEffectKind::Rumble {
+        strong_magnitude,
+        weak_magnitude,
+    } = effect.kind
+    {
+        effect.kind = FFEffectKind::Rumble {
+            strong_magnitude: (strong_magnitude as u32 * rog_ally::RUMBLE_MAX / 127) as u16,
+            weak_magnitude: (weak_magnitude as u32 * rog_ally::RUMBLE_MAX / 127) as u16,
+        };
+    }
+    effect
+}
+
 fn normalize_unsigned_value(raw_value: f64, max: f64) -> f64 {
     raw_value / max
 }

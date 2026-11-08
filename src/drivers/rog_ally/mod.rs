@@ -25,6 +25,9 @@ pub const PIDS: [u16; 2] = [ALLY_PID, ALLYX_PID];
 // Report ID's
 pub const RUMBLE_REPORT_ID: u8 = 0x0d;
 
+// Highest rumble magnitude the MCU accepts; the kernel scales force feedback to 0-127
+pub const RUMBLE_MAX: u32 = 100;
+
 // Timeouts
 // Rumble report duration and delay fields are in 10 ms units
 pub const GAMEPAD_WRITE_TIMEOUT: Duration = Duration::from_millis(10);

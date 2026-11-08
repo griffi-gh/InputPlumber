@@ -34,7 +34,7 @@ use crate::{
 /// Source device implementation for evdev gamepads
 /// Longest single trackpad haptic tap on rumble motors, which buzz rather than
 /// click when run for the full trackpad click duration
-const MAX_HAPTIC_TAP: Duration = Duration::from_millis(50);
+const MAX_HAPTIC_TAP: Duration = Duration::from_millis(30);
 
 /// Trackpad haptics convey strength through both gain and duration. Since taps
 /// are shortened, their level comes from the requested energy, with a tap of

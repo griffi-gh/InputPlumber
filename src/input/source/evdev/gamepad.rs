@@ -368,11 +368,7 @@ impl GamepadEventDevice {
         let effect_id = self.ff_effects_deck.unwrap();
         let effect = self.ff_effects.get_mut(&effect_id).unwrap();
 
-        let intensity = report.intensity.to_primitive() + 1;
-        let scaled_gain = ((report.gain as i16 + 24).clamp(0, 30) as u8) * intensity;
-        let normalized_gain = normalize_unsigned_value(scaled_gain as f64, 150.0);
-        let new_gain = normalized_gain * u16::MAX as f64;
-        let new_gain = new_gain as u16;
+        let new_gain = haptic_gain(report.gain, u16::MAX as f64, HAPTIC_NOMINAL_PERCENT) as u16;
 
         let left_speed = match report.side {
             PadSide::Left => new_gain,
@@ -811,10 +807,4 @@ impl Debug for GamepadEventDevice {
             .field("hat_state", &self.hat_state)
             .finish()
     }
-}
-
-// Returns a value between 0.0 and 1.0 based on the given value with its
-// maximum.
-fn normalize_unsigned_value(raw_value: f64, max: f64) -> f64 {
-    raw_value / max
 }

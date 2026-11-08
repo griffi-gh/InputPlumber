@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::os::fd::AsFd;
+use std::time::Duration;
 use std::{collections::HashMap, error::Error};
 
 use evdev::{
@@ -32,6 +33,10 @@ use crate::{
 };
 
 /// Source device implementation for evdev gamepads
+/// Longest single trackpad haptic tap on rumble motors, which buzz rather than
+/// click when run for the full trackpad click duration
+const MAX_HAPTIC_TAP: Duration = Duration::from_millis(50);
+
 pub struct GamepadEventDevice {
     device: Device,
     axes_info: HashMap<AbsoluteAxisCode, AbsInfo>,
@@ -394,7 +399,7 @@ impl GamepadEventDevice {
             CommandType::Click => right_speed,
         };
 
-        let length = haptic_duration(&report).as_millis() as u16;
+        let length = haptic_duration(&report).min(MAX_HAPTIC_TAP).as_millis() as u16;
 
         log::trace!("Got FF event data, Left Speed: {left_speed}, Right Speed: {right_speed}, Length: {length}");
 

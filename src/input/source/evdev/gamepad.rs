@@ -9,7 +9,6 @@ use evdev::{
 };
 use nix::fcntl::{FcntlArg, OFlag};
 use packed_struct::types::SizedInteger;
-use packed_struct::PrimitiveEnum;
 
 use crate::config::capability_map::CapabilityMapConfigV2;
 use crate::drivers::steam_deck::hid_report::{
@@ -36,6 +35,11 @@ use crate::{
 /// Longest single trackpad haptic tap on rumble motors, which buzz rather than
 /// click when run for the full trackpad click duration
 const MAX_HAPTIC_TAP: Duration = Duration::from_millis(50);
+
+/// Trackpad haptics convey strength through both gain and duration. Since taps
+/// are shortened, their level comes from the requested energy, with a tap of
+/// this duration at 0 dB playing at the nominal level.
+const HAPTIC_TAP_REFERENCE: Duration = Duration::from_millis(100);
 
 pub struct GamepadEventDevice {
     device: Device,
@@ -373,7 +377,11 @@ impl GamepadEventDevice {
         let effect_id = self.ff_effects_deck.unwrap();
         let effect = self.ff_effects.get_mut(&effect_id).unwrap();
 
-        let new_gain = haptic_gain(report.gain, u16::MAX as f64, HAPTIC_NOMINAL_PERCENT) as u16;
+        let duration = haptic_duration(&report);
+        let power = haptic_gain(report.gain, 1.0, 100.0);
+        let energy = power * duration.as_secs_f64() / HAPTIC_TAP_REFERENCE.as_secs_f64();
+        let new_gain = (u16::MAX as f64 * HAPTIC_NOMINAL_PERCENT / 100.0 * energy.sqrt())
+            .min(u16::MAX as f64) as u16;
 
         let left_speed = match report.side {
             PadSide::Left => new_gain,
@@ -399,7 +407,7 @@ impl GamepadEventDevice {
             CommandType::Click => right_speed,
         };
 
-        let length = haptic_duration(&report).min(MAX_HAPTIC_TAP).as_millis() as u16;
+        let length = duration.min(MAX_HAPTIC_TAP).as_millis() as u16;
 
         log::trace!("Got FF event data, Left Speed: {left_speed}, Right Speed: {right_speed}, Length: {length}");
 

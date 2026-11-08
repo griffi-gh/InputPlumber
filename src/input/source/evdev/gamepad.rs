@@ -24,7 +24,7 @@ use crate::{
         event::{evdev::EvdevEvent, native::NativeEvent},
         output_event::OutputEvent,
         source::{
-            haptic_duration, haptic_gain, InputError, OutputError, SourceInputDevice,
+            haptic_duration, haptic_gain, magnitude, InputError, OutputError, SourceInputDevice,
             SourceOutputDevice, HAPTIC_NOMINAL_PERCENT,
         },
     },
@@ -267,8 +267,8 @@ impl GamepadEventDevice {
                 delay: 0,
             },
             kind: FFEffectKind::Rumble {
-                strong_magnitude: left_speed,
-                weak_magnitude: right_speed,
+                strong_magnitude: magnitude(left_speed, report.left_gain, u16::MAX as f64) as u16,
+                weak_magnitude: magnitude(right_speed, report.right_gain, u16::MAX as f64) as u16,
             },
         };
         log::trace!("Updating effect data");
